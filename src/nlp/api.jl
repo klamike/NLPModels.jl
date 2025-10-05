@@ -14,6 +14,8 @@ export jth_hprod, jth_hprod!, ghjvprod, ghjvprod!
 export hess_structure!, hess_structure, hess_coord!, hess_coord
 export hess, hprod, hprod!, hess_op, hess_op!
 export varscale, lagscale, conscale
+export jac_param!, hess_param!, jac_param, hess_param
+export jac_param_structure, hess_param_structure, jac_param_coord, hess_param_coord, jac_param_structure, hess_param_structure
 
 """
     f = obj(nlp, x)
@@ -1405,3 +1407,27 @@ These are typically used to normalize constraints to have similar magnitudes and
 convergence behavior in nonlinear solvers.
 """
 function conscale end
+
+
+function jac_param! end
+function hess_param! end
+function jac_param end
+function hess_param end
+function jac_param_structure end
+function hess_param_structure end
+function jac_param_coord end
+function hess_param_coord end
+
+function jac_param_structure(nlp::AbstractNLPModel)
+  rows = zeros(Int, nlp.pmeta.nnzjp)  # FIXME pmeta
+  cols = zeros(Int, nlp.pmeta.nnzjp)  # FIXME pmeta
+  jac_param_structure!(nlp, rows, cols)
+  return rows, cols
+end
+
+function hess_param_structure(nlp::AbstractNLPModel)
+  rows = zeros(Int, nlp.pmeta.nnzhp)  # FIXME pmeta
+  cols = zeros(Int, nlp.pmeta.nnzhp)  # FIXME pmeta
+  hess_param_structure!(nlp, rows, cols)
+  return rows, cols
+end
