@@ -255,7 +255,7 @@ end
 
 function BatchSimpleNLPModel(ps::Vector{T}) where T
     return BatchSimpleNLPModel(
-        BatchNLPModelMeta{T, Vector{T}, Vector{Int}}(
+        BatchNLPModelMeta(
             length(ps),
             2;
             nnzh = 2,

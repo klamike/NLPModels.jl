@@ -195,3 +195,14 @@ function BatchNLPModelMeta{T, S, VI}(
     hprod_available,
   )
 end
+
+function BatchNLPModelMeta(
+  nbatch::Int,
+  nvar::Int;
+  x0::S = zeros(nvar * nbatch),
+  kwargs...,
+) where {S <: AbstractVector}
+  T = eltype(S)
+  VI = Vector{Int}   # FIXME
+  BatchNLPModelMeta{T, S, VI}(nbatch, nvar; x0 = x0, kwargs...)
+end
