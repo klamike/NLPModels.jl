@@ -672,3 +672,321 @@ function NLPModels.uvar_jptprod!(nlp::SimpleParamNLPModel, v::AbstractVector, Jt
   Jtv .= v
   return Jtv
 end
+
+# Batch wrapper for SimpleParamNLPModel
+
+mutable struct BatchSimpleParamNLPModel{T, M, S} <: AbstractBatchNLPModel{T, M}
+  meta::BatchNLPModelMeta{T, M}
+  models::Vector{SimpleParamNLPModel{T, S}}
+end
+
+function BatchSimpleParamNLPModel(params::Matrix{T}) where {T}
+  nparam_val, nbatch = size(params)
+  models = [SimpleParamNLPModel(T; ps = params[:, i]) for i = 1:nbatch]
+
+  lvar = similar(params, 2, nbatch)
+  uvar = similar(params, 2, nbatch)
+  lcon = similar(params, 1, nbatch)
+  ucon = similar(params, 1, nbatch)
+  for i = 1:nbatch
+    p1, p2 = params[:, i]
+    lvar[:, i] .= [-p1, -p2]
+    uvar[:, i] .= [p1, p2]
+    lcon[:, i] .= [-p2]
+    ucon[:, i] .= [p2]
+  end
+
+  meta = BatchNLPModelMeta{T, Matrix{T}}(
+    nbatch,
+    2;
+    ncon = 1,
+    x0 = zeros(T, 2, nbatch),
+    lvar = lvar,
+    uvar = uvar,
+    lcon = lcon,
+    ucon = ucon,
+    nnzh = 2,
+    nnzj = 2,
+    name = "Batch Simple Parametric NLP Model",
+    nparam = 2,
+    nnzjp = 1,
+    nnzhp = 3,
+    nnzgp = 2,
+    nnzjplcon = 1,
+    nnzjpucon = 1,
+    nnzjplvar = 2,
+    nnzjpuvar = 2,
+    grad_param_available = true,
+    jac_param_available = true,
+    hess_param_available = true,
+    jpprod_available = true,
+    jptprod_available = true,
+    hpprod_available = true,
+    hptprod_available = true,
+    lcon_jac_available = true,
+    ucon_jac_available = true,
+    lvar_jac_available = true,
+    uvar_jac_available = true,
+    lcon_jpprod_available = true,
+    ucon_jpprod_available = true,
+    lvar_jpprod_available = true,
+    uvar_jpprod_available = true,
+    lcon_jptprod_available = true,
+    ucon_jptprod_available = true,
+    lvar_jptprod_available = true,
+    uvar_jptprod_available = true,
+  )
+  return BatchSimpleParamNLPModel(meta, models)
+end
+
+# Standard batch API implementations
+
+function NLPModels.obj!(bnlp::BatchSimpleParamNLPModel, bx, bf)
+  for (i, nlp) in enumerate(bnlp.models)
+    bf[i] = NLPModels.obj(nlp, view(bx, :, i))
+  end
+  return bf
+end
+
+function NLPModels.grad!(bnlp::BatchSimpleParamNLPModel, bx, bg)
+  for (i, nlp) in enumerate(bnlp.models)
+    NLPModels.grad!(nlp, view(bx, :, i), view(bg, :, i))
+  end
+  return bg
+end
+
+function NLPModels.cons!(bnlp::BatchSimpleParamNLPModel, bx, bc)
+  for (i, nlp) in enumerate(bnlp.models)
+    NLPModels.cons!(nlp, view(bx, :, i), view(bc, :, i))
+  end
+  return bc
+end
+
+NLPModels.jac_structure!(bnlp::BatchSimpleParamNLPModel, jrows, jcols) =
+  NLPModels.jac_structure!(bnlp.models[1], jrows, jcols)
+
+function NLPModels.jac_coord!(bnlp::BatchSimpleParamNLPModel, bx, bjvals)
+  for (i, nlp) in enumerate(bnlp.models)
+    NLPModels.jac_coord!(nlp, view(bx, :, i), view(bjvals, :, i))
+  end
+  return bjvals
+end
+
+function NLPModels.jprod!(bnlp::BatchSimpleParamNLPModel, bx, bv, bJv)
+  for (i, nlp) in enumerate(bnlp.models)
+    NLPModels.jprod!(nlp, view(bx, :, i), view(bv, :, i), view(bJv, :, i))
+  end
+  return bJv
+end
+
+function NLPModels.jtprod!(bnlp::BatchSimpleParamNLPModel, bx, bv, bJtv)
+  for (i, nlp) in enumerate(bnlp.models)
+    NLPModels.jtprod!(nlp, view(bx, :, i), view(bv, :, i), view(bJtv, :, i))
+  end
+  return bJtv
+end
+
+NLPModels.hess_structure!(bnlp::BatchSimpleParamNLPModel, hrows, hcols) =
+  NLPModels.hess_structure!(bnlp.models[1], hrows, hcols)
+
+function NLPModels.hess_coord!(bnlp::BatchSimpleParamNLPModel, bx, by, bobj_weight, bhvals)
+  for (i, nlp) in enumerate(bnlp.models)
+    NLPModels.hess_coord!(
+      nlp,
+      view(bx, :, i),
+      view(by, :, i),
+      view(bhvals, :, i);
+      obj_weight = bobj_weight[i],
+    )
+  end
+  return bhvals
+end
+
+function NLPModels.hprod!(bnlp::BatchSimpleParamNLPModel, bx, by, bv, bobj_weight, bHv)
+  for (i, nlp) in enumerate(bnlp.models)
+    NLPModels.hprod!(
+      nlp,
+      view(bx, :, i),
+      view(by, :, i),
+      view(bv, :, i),
+      view(bHv, :, i);
+      obj_weight = bobj_weight[i],
+    )
+  end
+  return bHv
+end
+
+# Parametric batch API implementations
+
+function NLPModels.grad_param!(bnlp::BatchSimpleParamNLPModel, bx, bg)
+  for (i, nlp) in enumerate(bnlp.models)
+    NLPModels.grad_param!(nlp, view(bx, :, i), view(bg, :, i))
+  end
+  return bg
+end
+
+NLPModels.jac_param_structure!(bnlp::BatchSimpleParamNLPModel, rows, cols) =
+  NLPModels.jac_param_structure!(bnlp.models[1], rows, cols)
+
+function NLPModels.jac_param_coord!(bnlp::BatchSimpleParamNLPModel, bx, bvals)
+  for (i, nlp) in enumerate(bnlp.models)
+    NLPModels.jac_param_coord!(nlp, view(bx, :, i), view(bvals, :, i))
+  end
+  return bvals
+end
+
+function NLPModels.jpprod!(bnlp::BatchSimpleParamNLPModel, bx, bv, bJv)
+  for (i, nlp) in enumerate(bnlp.models)
+    NLPModels.jpprod!(nlp, view(bx, :, i), view(bv, :, i), view(bJv, :, i))
+  end
+  return bJv
+end
+
+function NLPModels.jptprod!(bnlp::BatchSimpleParamNLPModel, bx, bv, bJtv)
+  for (i, nlp) in enumerate(bnlp.models)
+    NLPModels.jptprod!(nlp, view(bx, :, i), view(bv, :, i), view(bJtv, :, i))
+  end
+  return bJtv
+end
+
+NLPModels.hess_param_structure!(bnlp::BatchSimpleParamNLPModel, rows, cols) =
+  NLPModels.hess_param_structure!(bnlp.models[1], rows, cols)
+
+function NLPModels.hess_param_coord!(bnlp::BatchSimpleParamNLPModel, bx, by, bobj_weight, bvals)
+  for (i, nlp) in enumerate(bnlp.models)
+    NLPModels.hess_param_coord!(
+      nlp,
+      view(bx, :, i),
+      view(by, :, i),
+      view(bvals, :, i);
+      obj_weight = bobj_weight[i],
+    )
+  end
+  return bvals
+end
+
+function NLPModels.hpprod!(bnlp::BatchSimpleParamNLPModel, bx, by, bv, bobj_weight, bHv)
+  for (i, nlp) in enumerate(bnlp.models)
+    NLPModels.hpprod!(
+      nlp,
+      view(bx, :, i),
+      view(by, :, i),
+      view(bv, :, i),
+      view(bHv, :, i);
+      obj_weight = bobj_weight[i],
+    )
+  end
+  return bHv
+end
+
+function NLPModels.hptprod!(bnlp::BatchSimpleParamNLPModel, bx, by, bv, bobj_weight, bHtv)
+  for (i, nlp) in enumerate(bnlp.models)
+    NLPModels.hptprod!(
+      nlp,
+      view(bx, :, i),
+      view(by, :, i),
+      view(bv, :, i),
+      view(bHtv, :, i);
+      obj_weight = bobj_weight[i],
+    )
+  end
+  return bHtv
+end
+
+# Bound Jacobian batch implementations
+
+NLPModels.lcon_jac_param_structure!(bnlp::BatchSimpleParamNLPModel, rows, cols) =
+  NLPModels.lcon_jac_param_structure!(bnlp.models[1], rows, cols)
+
+function NLPModels.lcon_jac_param_coord!(bnlp::BatchSimpleParamNLPModel, bvals)
+  for (i, nlp) in enumerate(bnlp.models)
+    NLPModels.lcon_jac_param_coord!(nlp, view(bvals, :, i))
+  end
+  return bvals
+end
+
+function NLPModels.lcon_jpprod!(bnlp::BatchSimpleParamNLPModel, bv, bJv)
+  for (i, nlp) in enumerate(bnlp.models)
+    NLPModels.lcon_jpprod!(nlp, view(bv, :, i), view(bJv, :, i))
+  end
+  return bJv
+end
+
+function NLPModels.lcon_jptprod!(bnlp::BatchSimpleParamNLPModel, bv, bJtv)
+  for (i, nlp) in enumerate(bnlp.models)
+    NLPModels.lcon_jptprod!(nlp, view(bv, :, i), view(bJtv, :, i))
+  end
+  return bJtv
+end
+
+NLPModels.ucon_jac_param_structure!(bnlp::BatchSimpleParamNLPModel, rows, cols) =
+  NLPModels.ucon_jac_param_structure!(bnlp.models[1], rows, cols)
+
+function NLPModels.ucon_jac_param_coord!(bnlp::BatchSimpleParamNLPModel, bvals)
+  for (i, nlp) in enumerate(bnlp.models)
+    NLPModels.ucon_jac_param_coord!(nlp, view(bvals, :, i))
+  end
+  return bvals
+end
+
+function NLPModels.ucon_jpprod!(bnlp::BatchSimpleParamNLPModel, bv, bJv)
+  for (i, nlp) in enumerate(bnlp.models)
+    NLPModels.ucon_jpprod!(nlp, view(bv, :, i), view(bJv, :, i))
+  end
+  return bJv
+end
+
+function NLPModels.ucon_jptprod!(bnlp::BatchSimpleParamNLPModel, bv, bJtv)
+  for (i, nlp) in enumerate(bnlp.models)
+    NLPModels.ucon_jptprod!(nlp, view(bv, :, i), view(bJtv, :, i))
+  end
+  return bJtv
+end
+
+NLPModels.lvar_jac_param_structure!(bnlp::BatchSimpleParamNLPModel, rows, cols) =
+  NLPModels.lvar_jac_param_structure!(bnlp.models[1], rows, cols)
+
+function NLPModels.lvar_jac_param_coord!(bnlp::BatchSimpleParamNLPModel, bvals)
+  for (i, nlp) in enumerate(bnlp.models)
+    NLPModels.lvar_jac_param_coord!(nlp, view(bvals, :, i))
+  end
+  return bvals
+end
+
+function NLPModels.lvar_jpprod!(bnlp::BatchSimpleParamNLPModel, bv, bJv)
+  for (i, nlp) in enumerate(bnlp.models)
+    NLPModels.lvar_jpprod!(nlp, view(bv, :, i), view(bJv, :, i))
+  end
+  return bJv
+end
+
+function NLPModels.lvar_jptprod!(bnlp::BatchSimpleParamNLPModel, bv, bJtv)
+  for (i, nlp) in enumerate(bnlp.models)
+    NLPModels.lvar_jptprod!(nlp, view(bv, :, i), view(bJtv, :, i))
+  end
+  return bJtv
+end
+
+NLPModels.uvar_jac_param_structure!(bnlp::BatchSimpleParamNLPModel, rows, cols) =
+  NLPModels.uvar_jac_param_structure!(bnlp.models[1], rows, cols)
+
+function NLPModels.uvar_jac_param_coord!(bnlp::BatchSimpleParamNLPModel, bvals)
+  for (i, nlp) in enumerate(bnlp.models)
+    NLPModels.uvar_jac_param_coord!(nlp, view(bvals, :, i))
+  end
+  return bvals
+end
+
+function NLPModels.uvar_jpprod!(bnlp::BatchSimpleParamNLPModel, bv, bJv)
+  for (i, nlp) in enumerate(bnlp.models)
+    NLPModels.uvar_jpprod!(nlp, view(bv, :, i), view(bJv, :, i))
+  end
+  return bJv
+end
+
+function NLPModels.uvar_jptprod!(bnlp::BatchSimpleParamNLPModel, bv, bJtv)
+  for (i, nlp) in enumerate(bnlp.models)
+    NLPModels.uvar_jptprod!(nlp, view(bv, :, i), view(bJtv, :, i))
+  end
+  return bJtv
+end
